@@ -616,7 +616,6 @@ public class ReplicationSource extends Thread implements ReplicationSourceInterf
         try {
           WALEntryBatch entryBatch = entryReader.take();
           shipEdits(entryBatch);
-          releaseBufferQuota((int) entryBatch.getHeapSize());
           if (!entryBatch.hasMoreEntries()) {
             LOG.debug("Finished recovering queue for group "
                     + walGroupId + " of peer " + peerClusterZnode);
@@ -777,6 +776,7 @@ public class ReplicationSource extends Thread implements ReplicationSourceInterf
           if (throttler.isEnabled()) {
             throttler.addPushSize(sizeExcludeBulkLoad);
           }
+          releaseBufferQuota(sizeExcludeBulkLoad);
           totalReplicatedEdits.addAndGet(entries.size());
           totalReplicatedOperations.addAndGet(entryBatch.getNbOperations());
           // FIXME check relationship between wal group and overall
@@ -938,8 +938,9 @@ public class ReplicationSource extends Thread implements ReplicationSourceInterf
         Path p = rs.getPath();
         FileStatus[] logs = fs.listStatus(p);
         for (FileStatus log : logs) {
-          p = new Path(p, log.getPath().getName());
-          if (p.getName().equals(path.getName())) {
+          String logName = log.getPath().getName();
+          if (logName.equals(path.getName())) {
+            p = new Path(p, log.getPath().getName());
             LOG.info("Log " + p.getName() + " found at " + p);
             return p;
           }

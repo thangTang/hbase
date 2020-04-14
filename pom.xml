@@ -39,7 +39,7 @@
   <groupId>org.apache.hbase</groupId>
   <artifactId>hbase</artifactId>
   <packaging>pom</packaging>
-  <version>1.6.0-SNAPSHOT</version>
+  <version>1.7.0-SNAPSHOT</version>
   <name>Apache HBase</name>
   <description>
     Apache HBase is the Hadoop database. Use it when you need
@@ -150,6 +150,13 @@
       <subscribe>builds-subscribe@hbase.apache.org</subscribe>
       <unsubscribe>builds-unsubscribe@hbase.apache.org</unsubscribe>
       <archive>https://mail-archives.apache.org/mod_mbox/hbase-builds/</archive>
+    </mailingList>
+    <mailingList>
+      <name>User (ZH) List</name>
+      <subscribe>user-zh-subscribe@hbase.apache.org</subscribe>
+      <unsubscribe>user-zh-unsubscribe@hbase.apache.org</unsubscribe>
+      <post>user-zh@hbase.apache.org</post>
+      <archive>https://lists.apache.org/list.html?user-zh@hbase.apache.org</archive>
     </mailingList>
   </mailingLists>
   <developers>
@@ -851,6 +858,14 @@
         <!-- version set by parent -->
         <executions>
           <execution>
+            <id>display-info</id>
+            <phase>initialize</phase>
+            <goals>
+              <goal>display-info</goal>
+            </goals>
+            <inherited>false</inherited>
+          </execution>
+          <execution>
             <id>hadoop-profile-min-maven-min-java-banned-xerces</id>
             <goals>
               <goal>enforce</goal>
@@ -1302,6 +1317,9 @@
     <jamon.plugin.version>2.4.1</jamon.plugin.version>
     <findbugs-annotations>1.3.9-1</findbugs-annotations>
     <findbugs.maven.version>3.0.4</findbugs.maven.version>
+    <!--
+      When updating checkstyle.version, please make the same change in `.idea/checkstyle-idea.xml`
+    -->
     <checkstyle.version>6.18</checkstyle.version>
     <asciidoctor.plugin.version>1.5.3</asciidoctor.plugin.version>
     <plexus.errorprone.javac.version>2.8.2</plexus.errorprone.javac.version>

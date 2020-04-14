@@ -145,6 +145,8 @@ public class HStore implements Store {
   private AtomicLong storeSize = new AtomicLong();
   private AtomicLong totalUncompressedBytes = new AtomicLong();
 
+  private boolean cacheOnWriteLogged;
+
   /**
    * RWLock for store operations.
    * Locked in shared mode when the list of component stores is looked at:
@@ -371,6 +373,7 @@ public class HStore implements Store {
       ", storagePolicy=" + policyName + ", verifyBulkLoads=" + verifyBulkLoads +
       ", encoding=" + family.getDataBlockEncoding() +
       ", compression=" + family.getCompressionType());
+    cacheOnWriteLogged = false;
   }
 
   /**
@@ -1076,7 +1079,7 @@ public class HStore implements Store {
                                             boolean includesTag)
       throws IOException {
     return createWriterInTmp(maxKeyCount, compression, isCompaction, includeMVCCReadpoint,
-        includesTag, false);
+        includesTag, false, -1);
   }
 
   /*
@@ -1090,32 +1093,70 @@ public class HStore implements Store {
   @Override
   public StoreFile.Writer createWriterInTmp(long maxKeyCount, Compression.Algorithm compression,
       boolean isCompaction, boolean includeMVCCReadpoint, boolean includesTag,
-      boolean shouldDropBehind)
-  throws IOException {
+      boolean shouldDropBehind, long totalCompactedFilesSize) throws IOException {
     return createWriterInTmp(maxKeyCount, compression, isCompaction, includeMVCCReadpoint,
-        includesTag, shouldDropBehind, null);
+        includesTag, shouldDropBehind, null, totalCompactedFilesSize);
   }
 
-  /*
-   * @param maxKeyCount
+  /**
+   *
+   * @param maxKeyCount max key count
    * @param compression Compression algorithm to use
    * @param isCompaction whether we are creating a new file in a compaction
-   * @param includesMVCCReadPoint - whether to include MVCC or not
-   * @param includesTag - includesTag or not
+   * @param includeMVCCReadpoint - whether to include MVCC or not
+   * @param includesTag whether to include tag while creating FileContext
+   * @param shouldDropBehind should the writer drop caches behind writes
+   * @param trt Ready-made timetracker to use.
+   * @param totalCompactedFilesSize total compacted file size
    * @return Writer for a new StoreFile in the tmp dir.
+   * @throws IOException if something goes wrong with StoreFiles
    */
   @Override
   public StoreFile.Writer createWriterInTmp(long maxKeyCount, Compression.Algorithm compression,
       boolean isCompaction, boolean includeMVCCReadpoint, boolean includesTag,
-      boolean shouldDropBehind, final TimeRangeTracker trt)
-  throws IOException {
-    final CacheConfig writerCacheConf;
+      boolean shouldDropBehind, final TimeRangeTracker trt, long totalCompactedFilesSize)
+        throws IOException {
+    // creating new cache config for each new writer
+    final CacheConfig writerCacheConf = new CacheConfig(cacheConf);
     if (isCompaction) {
-      // Don't cache data on write on compactions.
-      writerCacheConf = new CacheConfig(cacheConf);
-      writerCacheConf.setCacheDataOnWrite(false);
+      // Don't cache data on write on compactions, unless specifically configured to do so
+      // Cache only when total file size remains lower than configured threshold
+      final boolean cacheCompactedBlocksOnWrite =
+        cacheConf.shouldCacheCompactedBlocksOnWrite();
+      // if data blocks are to be cached on write
+      // during compaction, we should forcefully
+      // cache index and bloom blocks as well
+      if (cacheCompactedBlocksOnWrite && totalCompactedFilesSize <= cacheConf
+        .getCacheCompactedBlocksOnWriteThreshold()) {
+        writerCacheConf.enableCacheOnWrite();
+        if (!cacheOnWriteLogged) {
+          LOG.info("For Store " + getColumnFamilyName() +
+            " , cacheCompactedBlocksOnWrite is true, hence enabled " +
+            "cacheOnWrite for Data blocks, Index blocks and Bloom filter blocks");
+          cacheOnWriteLogged = true;
+        }
+      } else {
+        writerCacheConf.setCacheDataOnWrite(false);
+        if (totalCompactedFilesSize > cacheConf.getCacheCompactedBlocksOnWriteThreshold()) {
+          // checking condition once again for logging
+          LOG.debug("For Store " + getColumnFamilyName()
+            + ", setting cacheCompactedBlocksOnWrite as false as total size of compacted "
+            + "files - " + totalCompactedFilesSize
+            + ", is greater than cacheCompactedBlocksOnWriteThreshold - "
+            + cacheConf.getCacheCompactedBlocksOnWriteThreshold());
+        }
+      }
     } else {
-      writerCacheConf = cacheConf;
+      final boolean shouldCacheDataOnWrite = cacheConf.shouldCacheDataOnWrite();
+      if (shouldCacheDataOnWrite) {
+        writerCacheConf.enableCacheOnWrite();
+        if (!cacheOnWriteLogged) {
+          LOG.info("For Store " + getColumnFamilyName() +
+            " , cacheDataOnWrite is true, hence enabled cacheOnWrite for " +
+            "Index blocks and Bloom filter blocks");
+          cacheOnWriteLogged = true;
+        }
+      }
     }
     InetSocketAddress[] favoredNodes = null;
     if (region.getRegionServerServices() != null) {
